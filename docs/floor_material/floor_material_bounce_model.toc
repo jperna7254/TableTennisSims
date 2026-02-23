@@ -1,0 +1,36 @@
+\contentsline {section}{\numberline {1}Introduction and Objectives}{3}{section.1}%
+\contentsline {section}{\numberline {2}Physical System and Assumptions}{3}{section.2}%
+\contentsline {subsection}{\numberline {2.1}Ball}{3}{subsection.2.1}%
+\contentsline {subsection}{\numberline {2.2}Ball--Table Contact}{3}{subsection.2.2}%
+\contentsline {subsection}{\numberline {2.3}Table and Legs}{3}{subsection.2.3}%
+\contentsline {subsection}{\numberline {2.4}Floor / Support}{3}{subsection.2.4}%
+\contentsline {subsection}{\numberline {2.5}What Is Intentionally Not Modeled}{4}{subsection.2.5}%
+\contentsline {section}{\numberline {3}Degrees of Freedom}{4}{section.3}%
+\contentsline {section}{\numberline {4}Contact Geometry}{4}{section.4}%
+\contentsline {section}{\numberline {5}Forces During Contact}{4}{section.5}%
+\contentsline {subsection}{\numberline {5.1}Normal (Vertical) Contact Force}{4}{subsection.5.1}%
+\contentsline {subsection}{\numberline {5.2}Tangential (Frictional) Contact Force}{5}{subsection.5.2}%
+\contentsline {subsubsection}{\numberline {5.2.1}Slip Velocity}{5}{subsubsection.5.2.1}%
+\contentsline {subsubsection}{\numberline {5.2.2}Friction Force}{5}{subsubsection.5.2.2}%
+\contentsline {subsubsection}{\numberline {5.2.3}Effect on Translation and Spin}{5}{subsubsection.5.2.3}%
+\contentsline {section}{\numberline {6}Equations of Motion}{5}{section.6}%
+\contentsline {subsection}{\numberline {6.1}Ball --- Vertical}{5}{subsection.6.1}%
+\contentsline {subsection}{\numberline {6.2}Ball --- Horizontal}{6}{subsection.6.2}%
+\contentsline {subsection}{\numberline {6.3}Ball --- Spin}{6}{subsection.6.3}%
+\contentsline {subsection}{\numberline {6.4}Table --- Vertical}{6}{subsection.6.4}%
+\contentsline {section}{\numberline {7}Summary of the ODE System}{6}{section.7}%
+\contentsline {section}{\numberline {8}Energy Considerations}{6}{section.8}%
+\contentsline {section}{\numberline {9}Model Parameters}{7}{section.9}%
+\contentsline {subsection}{\numberline {9.1}Calibrated Values}{7}{subsection.9.1}%
+\contentsline {subsection}{\numberline {9.2}Simulation Scenario}{7}{subsection.9.2}%
+\contentsline {section}{\numberline {10}Numerical Solution Strategy}{7}{section.10}%
+\contentsline {section}{\numberline {11}Simulation Outputs}{8}{section.11}%
+\contentsline {subsection}{\numberline {11.1}Floor Comparison (4-panel static plot)}{8}{subsection.11.1}%
+\contentsline {subsection}{\numberline {11.2}Bounce Animation (GIF)}{8}{subsection.11.2}%
+\contentsline {section}{\numberline {12}Key Findings}{8}{section.12}%
+\contentsline {subsection}{\numberline {12.1}Floor Effect on Ball Dynamics}{8}{subsection.12.1}%
+\contentsline {subsection}{\numberline {12.2}Floor Effect on Table Response}{9}{subsection.12.2}%
+\contentsline {subsection}{\numberline {12.3}Topspin Effect}{9}{subsection.12.3}%
+\contentsline {section}{\numberline {13}Validation Summary}{9}{section.13}%
+\contentsline {section}{\numberline {14}Implementation}{9}{section.14}%
+\contentsline {section}{\numberline {15}Future Extensions}{10}{section.15}%

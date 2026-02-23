@@ -392,7 +392,7 @@ def print_results_table(
 if __name__ == "__main__":
     import os
     import glob as _glob
-    out_dir = os.path.join(os.path.dirname(__file__), "..", "..", "output")
+    out_dir = os.path.join(os.path.dirname(__file__), "..", "..", "output", "floor_material")
     os.makedirs(out_dir, exist_ok=True)
 
     # Clear previous outputs
