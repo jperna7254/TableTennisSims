@@ -1,0 +1,608 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{siunitx}
+\usepackage{caption}
+
+\title{%
+  \textbf{Floor Material Impact on Table-Tennis Ball Bounce Dynamics} \\[6pt]
+  \large A Low-Order ODE Simulation of Topspin Bounce on Four Floor Types
+}
+\author{TableTennisSims Project}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This document describes the mathematical model and simulation implementation
+used to study how floor material beneath a table-tennis table affects ball
+bounce dynamics. The simulation focuses on a \textbf{topspin bounce scenario}
+and tracks four key observables across four floor types (concrete, hardwood,
+rubber mat, carpet): (1)~horizontal ball velocity, (2)~vertical ball position
+(post-bounce height), (3)~spin evolution, and (4)~vertical displacement of
+the table/floor spring system. The model uses four degrees of freedom---three
+for the ball and one for the table---with all contact interactions formulated
+as smooth, continuous forces suitable for adaptive ODE solvers.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+%=============================================================================
+\section{Introduction and Objectives}
+%=============================================================================
+
+The goal of this simulation is to predict how \textbf{floor material} beneath a
+table-tennis table alters the outcome of a topspin ball bounce. The study
+focuses on four primary observables:
+
+\begin{enumerate}[nosep]
+  \item \textbf{Horizontal velocity ($\dot{x}$):} How the ball's horizontal
+    speed changes during contact, driven by the coupling between topspin and
+    friction.
+  \item \textbf{Ball height ($y$):} The vertical position of the ball over
+    time, specifically how the post-bounce apex height varies across floor
+    types.
+  \item \textbf{Spin ($\omega$):} How the ball's topspin is altered by the
+    bounce---friction at the contact patch converts between translational and
+    rotational kinetic energy.
+  \item \textbf{Table/floor displacement ($y_t$):} The vertical displacement
+    of the table mass on the floor spring--dashpot, which is the primary
+    quantity that differentiates floor materials in the simulation.
+\end{enumerate}
+
+The simulation scenario is a ball released from \SI{30.5}{cm} with an initial
+horizontal velocity of \SI{2.0}{m/s} and topspin of \SI{150}{rad/s},
+bouncing on a Butterfly Centrefold~25 tournament table (\SI{127}{kg}).
+
+The model is intentionally \emph{low-order}: it retains only the degrees of
+freedom and force laws necessary to capture the dominant physics, while
+remaining numerically tractable with standard ODE integration techniques.
+
+%=============================================================================
+\section{Physical System and Assumptions}
+%=============================================================================
+
+\subsection{Ball}
+
+The ball is modeled as a \textbf{rigid sphere} of mass~$m$, radius~$R$, and
+moment of inertia~$I$. For a thin-walled hollow sphere,
+\begin{equation}
+  I = \frac{2}{3}\,m R^2.
+  \label{eq:moi}
+\end{equation}
+The ball possesses translational degrees of freedom in the horizontal~($x$) and
+vertical~($y$) directions, and a rotational degree of freedom~($\omega$)
+about the axis perpendicular to the plane of motion (i.e.\ topspin/backspin
+axis).
+
+\subsection{Ball--Table Contact}
+
+Deformation during contact (both of the ball shell and the very local table
+surface) is represented by a \textbf{linear spring--dashpot} (Kelvin--Voigt
+element) acting in the normal (vertical) direction. This element is active only
+when geometric overlap exists. Tangential interaction at the contact patch is
+governed by \textbf{Coulomb friction} with a smooth regularisation.
+
+\subsection{Table and Legs}
+
+The table top and its legs are lumped into a \textbf{single rigid body of
+finite mass}~$m_t = \SI{127}{kg}$ (based on a Butterfly Centrefold~25
+tournament table) with a single vertical translational degree of
+freedom~$y_t$. No bending, torsion, or spatial wave propagation in the table
+top is modeled; the table serves solely as a force-transmission path between
+the ball and the floor support.
+
+\subsection{Floor / Support}
+
+The floor is modeled as a \textbf{second linear spring--dashpot} that acts on
+the table mass. This element is always active (the table always rests on the
+floor). The stiffness~$k_f$ and damping coefficient~$c_f$ of this element are
+the \textbf{primary parameters that distinguish one floor type from another}.
+
+\subsection{What Is Intentionally Not Modeled}
+
+\begin{itemize}[nosep]
+  \item Table-top bending or vibrational modes,
+  \item Elastic wave propagation through the table or floor,
+  \item Spatial extent or shape of the contact patch,
+  \item Detailed viscoelastic or hyperelastic material constitutive laws,
+  \item Spin decay during free flight,
+  \item Aerodynamic drag and Magnus effect (identical across floor types).
+\end{itemize}
+
+These effects contribute negligibly to centimetre-level bounce accuracy and
+post-bounce velocity/spin outcomes for the scenarios considered.
+
+%=============================================================================
+\section{Degrees of Freedom}
+%=============================================================================
+
+The system has \textbf{four degrees of freedom}:
+
+\begin{center}
+\begin{tabular}{@{}cll@{}}
+  \toprule
+  DOF & Symbol & Description \\
+  \midrule
+  1 & $x$     & Ball horizontal position \\
+  2 & $y$     & Ball vertical position (measured from floor) \\
+  3 & $\omega$ & Ball angular velocity (positive = topspin) \\
+  4 & $y_t$   & Table vertical displacement from equilibrium \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+The associated velocity-level state variables are $\dot{x}$, $\dot{y}$,
+$\dot{\omega}$ (angular acceleration enters through torque), and $\dot{y}_t$.
+
+The full state vector used for numerical integration is
+\begin{equation}
+  \mathbf{s} =
+  \begin{bmatrix}
+    x \\ \dot{x} \\ y \\ \dot{y} \\ \omega \\ y_t \\ \dot{y}_t
+  \end{bmatrix}
+  \in \mathbb{R}^7.
+  \label{eq:state}
+\end{equation}
+
+%=============================================================================
+\section{Contact Geometry}
+%=============================================================================
+
+Let the table surface be located at vertical coordinate~$y_t$ (measured as a
+displacement from its static equilibrium position, which we take as the
+reference). The ball centre is at height~$y$. Contact occurs when the ball
+surface geometrically overlaps the table surface:
+
+\begin{equation}
+  \delta = R - (y - y_t).
+  \label{eq:overlap}
+\end{equation}
+
+Contact is active when $\delta > 0$. The overlap rate is
+\begin{equation}
+  \dot{\delta} = -(\dot{y} - \dot{y}_t).
+  \label{eq:overlap_rate}
+\end{equation}
+
+%=============================================================================
+\section{Forces During Contact}
+%=============================================================================
+
+\subsection{Normal (Vertical) Contact Force}
+
+The normal contact force follows a linear spring--dashpot law:
+\begin{equation}
+  F_n =
+  \begin{cases}
+    k_c\,\delta + c_c\,\dot{\delta}, & \text{if } \delta > 0 \text{ and }
+      k_c\,\delta + c_c\,\dot{\delta} > 0, \\
+    0, & \text{otherwise}.
+  \end{cases}
+  \label{eq:Fn}
+\end{equation}
+
+The constraint $F_n \geq 0$ prevents the contact model from generating
+artificial adhesion (tensile force) during the separation phase of the
+collision. The parameters are:
+\begin{itemize}[nosep]
+  \item $k_c$: contact stiffness (\si{N/m}), representing ball shell and local
+    table surface compliance,
+  \item $c_c$: contact damping coefficient (\si{N\,s/m}), representing energy
+    dissipation during deformation.
+\end{itemize}
+
+\subsection{Tangential (Frictional) Contact Force}
+
+\subsubsection{Slip Velocity}
+
+The velocity of the ball's contact point relative to the table surface is
+\begin{equation}
+  v_{\text{slip}} = \dot{x} - \omega\,R.
+  \label{eq:vslip}
+\end{equation}
+
+When $v_{\text{slip}} = 0$ the ball is in a pure rolling state at the contact
+point. A nonzero $v_{\text{slip}}$ indicates sliding.
+
+\subsubsection{Friction Force}
+
+The tangential friction force is modeled using Coulomb's law with a smooth
+$\tanh$ regularisation to avoid a discontinuity at $v_{\text{slip}} = 0$:
+\begin{equation}
+  F_t = -\mu\,F_n\;\tanh\!\left(\frac{v_{\text{slip}}}{v_0}\right),
+  \label{eq:Ft}
+\end{equation}
+where:
+\begin{itemize}[nosep]
+  \item $\mu$: coefficient of kinetic friction between ball and table surface,
+  \item $v_0$: regularisation velocity (\si{m/s}), a small positive constant
+    controlling the sharpness of the friction transition (typically
+    \SIrange{0.01}{0.1}{m/s}).
+\end{itemize}
+
+The $\tanh$ function smoothly transitions the friction force direction across
+zero slip velocity, approximating the sign function while maintaining
+continuous derivatives required for ODE solver stability.
+
+\subsubsection{Effect on Translation and Spin}
+
+The friction force simultaneously modifies horizontal translation and spin:
+\begin{align}
+  m\,\ddot{x}    &= F_t,       \label{eq:xddot} \\
+  I\,\dot{\omega} &= -R\,F_t.   \label{eq:omegadot}
+\end{align}
+
+Note the opposite signs: friction that decelerates horizontal sliding
+simultaneously accelerates spin (and vice versa). This coupling is the
+mechanism by which topspin produces increased horizontal speed after a bounce
+while losing angular velocity.
+
+%=============================================================================
+\section{Equations of Motion}
+%=============================================================================
+
+\subsection{Ball --- Vertical}
+
+\begin{equation}
+  m\,\ddot{y} = -m\,g + F_n,
+  \label{eq:ball_vert}
+\end{equation}
+
+where $g$ is gravitational acceleration and $F_n$ is defined by
+Eq.~\eqref{eq:Fn}. During free flight ($\delta \leq 0$), $F_n = 0$ and the
+ball follows a parabolic trajectory.
+
+\subsection{Ball --- Horizontal}
+
+\begin{equation}
+  m\,\ddot{x} = F_t,
+  \label{eq:ball_horiz}
+\end{equation}
+
+where $F_t$ is defined by Eq.~\eqref{eq:Ft}. During free flight, $F_t = 0$
+and horizontal velocity is constant.
+
+\subsection{Ball --- Spin}
+
+\begin{equation}
+  I\,\dot{\omega} = -R\,F_t.
+  \label{eq:ball_spin}
+\end{equation}
+
+During free flight, spin is constant (aerodynamic spin decay is neglected).
+
+\subsection{Table --- Vertical}
+
+\begin{equation}
+  m_t\,\ddot{y}_t = F_n - \bigl(k_f\,y_t + c_f\,\dot{y}_t\bigr).
+  \label{eq:table_vert}
+\end{equation}
+
+The table is driven downward by the contact force $F_n$ (Newton's third law
+applied to the ball--table interaction) and restored by the floor
+spring--dashpot. When no ball contact exists ($F_n = 0$), the table undergoes
+free damped oscillation about its equilibrium position.
+
+%=============================================================================
+\section{Summary of the ODE System}
+%=============================================================================
+
+Combining all equations of motion with the state vector defined in
+Eq.~\eqref{eq:state}, the system to be integrated is:
+
+\begin{equation}
+  \frac{d\mathbf{s}}{dt} =
+  \begin{bmatrix}
+    \dot{x} \\[4pt]
+    F_t / m \\[4pt]
+    \dot{y} \\[4pt]
+    -g + F_n / m \\[4pt]
+    -R\,F_t / I \\[4pt]
+    \dot{y}_t \\[4pt]
+    \bigl(F_n - k_f\,y_t - c_f\,\dot{y}_t\bigr) / m_t
+  \end{bmatrix},
+  \label{eq:ode_system}
+\end{equation}
+
+where $F_n$ and $F_t$ are evaluated from the current state via
+Eqs.~\eqref{eq:Fn}--\eqref{eq:Ft}.
+
+%=============================================================================
+\section{Energy Considerations}
+%=============================================================================
+
+During contact, energy flows through the system as follows:
+
+\begin{enumerate}[nosep]
+  \item Ball kinetic energy is converted to elastic potential energy in the
+    contact spring (compression of ball and table surface).
+  \item The contact dashpot ($c_c$) dissipates energy irreversibly---this is the
+    \textbf{primary loss mechanism} and governs the effective coefficient of
+    restitution.
+  \item The contact force simultaneously accelerates the table mass downward.
+  \item The table compresses the floor spring, storing elastic energy.
+  \item The floor dashpot ($c_f$) dissipates energy irreversibly---this is the
+    \textbf{secondary, floor-dependent loss mechanism}.
+  \item Stored elastic energy in both springs is returned to the ball and table
+    during rebound.
+\end{enumerate}
+
+The total mechanical energy of the system,
+\begin{equation}
+  E = \underbrace{\tfrac{1}{2}m\dot{x}^2
+      + \tfrac{1}{2}m\dot{y}^2
+      + \tfrac{1}{2}I\omega^2
+      + m\,g\,y}_{\text{ball}}
+    + \underbrace{\tfrac{1}{2}m_t\dot{y}_t^2
+      + \tfrac{1}{2}k_f y_t^2}_{\text{table + floor spring}}
+    + \underbrace{\tfrac{1}{2}k_c\delta^2}_{\text{contact spring (if } \delta > 0\text{)}},
+  \label{eq:energy}
+\end{equation}
+should be \textbf{monotonically non-increasing} in time. Any increase in total
+energy during a simulation indicates a numerical or implementation error and
+serves as a primary validation diagnostic.
+
+%=============================================================================
+\section{Model Parameters}
+%=============================================================================
+
+\subsection{Calibrated Values}
+
+The contact parameters $k_c$ and $c_c$ were tuned via parameter sweep to
+simultaneously match two ITTF targets for a vertical drop from \SI{30.5}{cm}
+onto a rigid (concrete) floor:
+
+\begin{itemize}[nosep]
+  \item Coefficient of restitution (COR) $\approx 0.76$
+    (achieved: $0.768$),
+  \item Contact time $\approx \SI{1}{ms}$
+    (achieved: $\SI{1.01}{ms}$).
+\end{itemize}
+
+\begin{table}[ht]
+\centering
+\caption{Ball parameters (ITTF regulation ball).}
+\label{tab:ball}
+\begin{tabular}{@{}llll@{}}
+  \toprule
+  Parameter & Symbol & Value & Unit \\
+  \midrule
+  Mass                & $m$ & $2.7 \times 10^{-3}$ & \si{kg} \\
+  Radius              & $R$ & $20 \times 10^{-3}$  & \si{m} \\
+  Moment of inertia   & $I$ & $\frac{2}{3}mR^2 \approx 7.2 \times 10^{-7}$
+                                                     & \si{kg\,m^2} \\
+  \bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[ht]
+\centering
+\caption{Contact parameters (ball--table interaction). Values of $k_c$ and
+$c_c$ were calibrated to match ITTF COR and contact-time targets.}
+\label{tab:contact}
+\begin{tabular}{@{}llll@{}}
+  \toprule
+  Parameter & Symbol & Value & Unit \\
+  \midrule
+  Contact stiffness       & $k_c$ & $2.5 \times 10^4$  & \si{N/m} \\
+  Contact damping         & $c_c$ & $1.6$              & \si{N\,s/m} \\
+  Friction coefficient    & $\mu$ & $0.25$             & --- \\
+  Regularisation velocity & $v_0$ & $0.01$             & \si{m/s} \\
+  \bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[ht]
+\centering
+\caption{Table parameters (Butterfly Centrefold~25 tournament table).}
+\label{tab:table}
+\begin{tabular}{@{}llll@{}}
+  \toprule
+  Parameter & Symbol & Value & Unit \\
+  \midrule
+  Table mass (top + legs) & $m_t$ & $127$ & \si{kg} \\
+  \bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[ht]
+\centering
+\caption{Floor support parameters---the experimental variable. Values
+selected from the representative ranges for each material class.}
+\label{tab:floor}
+\begin{tabular}{@{}lllll@{}}
+  \toprule
+  Floor Type & $k_f$ (\si{N/m}) & $c_f$ (\si{N\,s/m}) & Character \\
+  \midrule
+  Concrete slab     & $5 \times 10^7$ & $5 \times 10^3$ & Very stiff, low loss \\
+  Hardwood (sprung) & $5 \times 10^5$ & $5 \times 10^3$ & Moderate compliance \\
+  Rubber sport mat  & $5 \times 10^4$ & $5 \times 10^3$ & Compliant, higher damping \\
+  Carpet over pad   & $5 \times 10^3$ & $5 \times 10^2$ & Soft, high loss \\
+  \bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Simulation Scenario}
+
+The primary simulation scenario uses the following initial conditions:
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+  \toprule
+  Parameter & Value & Description \\
+  \midrule
+  $y_0$ & \SI{0.305}{m} & Initial ball height (ITTF drop height) \\
+  $\dot{x}_0$ & \SI{2.0}{m/s} & Initial horizontal velocity \\
+  $\omega_0$ & \SI{150}{rad/s} & Initial topspin \\
+  $t_{\text{span}}$ & $0$--$\SI{0.5}{s}$ & Simulation duration \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+%=============================================================================
+\section{Numerical Solution Strategy}
+%=============================================================================
+
+The ODE system in Eq.~\eqref{eq:ode_system} is integrated using SciPy's
+\texttt{solve\_ivp} with the \texttt{Radau} (implicit Runge--Kutta) method.
+An implicit method is preferred because the system is \textbf{transiently
+stiff}: during the brief contact phase (${\sim}\SI{1}{ms}$), the large
+contact stiffness~$k_c$ introduces fast dynamics that require implicit
+treatment, while the flight phase is non-stiff and can be integrated with
+large steps.
+
+Solver settings:
+\begin{itemize}[nosep]
+  \item Relative tolerance: $\texttt{rtol} = 10^{-9}$,
+  \item Absolute tolerance: $\texttt{atol} = 10^{-9}$,
+  \item Maximum step size: $\texttt{max\_step} = \SI{1}{ms}$,
+  \item Dense output enabled for smooth animation rendering.
+\end{itemize}
+
+%=============================================================================
+\section{Simulation Outputs}
+%=============================================================================
+
+The simulation produces two visualisations:
+
+\subsection{Floor Comparison (4-panel static plot)}
+
+A $2 \times 2$ panel comparing all four floor types across the key
+observables:
+
+\begin{enumerate}[nosep]
+  \item \textbf{Ball height vs.\ time} --- Shows the parabolic flight,
+    contact dip, and post-bounce apex. Any floor-dependent change in bounce
+    height would appear here.
+  \item \textbf{Spin vs.\ time} --- Shows the step decrease in $\omega$
+    during contact as topspin is converted to horizontal speed via friction.
+  \item \textbf{Horizontal velocity vs.\ time} --- Shows the step increase in
+    $\dot{x}$ during contact (topspin-to-speed conversion). This is the
+    primary ball-level observable of interest.
+  \item \textbf{Table displacement vs.\ time} --- Shows $y_t$ in
+    micrometres. This is the quantity that most clearly differentiates floor
+    types: carpet produces ${\sim}\SI{9}{\micro m}$ of table displacement,
+    while concrete produces sub-micrometre motion.
+\end{enumerate}
+
+\subsection{Bounce Animation (GIF)}
+
+A 2D animated trajectory of the topspin bounce on the default (concrete)
+floor, rendered in slow motion ($0.1\times$ real time). The animation
+includes:
+\begin{itemize}[nosep]
+  \item Ball position (circle patch) with trajectory trail,
+  \item Spin indicator (rotating radius line),
+  \item Velocity vector arrow,
+  \item Table surface line,
+  \item Time display.
+\end{itemize}
+
+%=============================================================================
+\section{Key Findings}
+%=============================================================================
+
+\subsection{Floor Effect on Ball Dynamics}
+
+With a tournament-weight table ($m_t = \SI{127}{kg}$), the floor material has
+\textbf{negligible effect on ball-level observables}. The ball height, spin,
+and horizontal velocity curves overlap identically across all four floor
+types. This is physically correct: the ball-to-table mass ratio is
+approximately $1{:}47{,}000$, so the table acts as an effectively infinite
+mass during the ${\sim}\SI{1}{ms}$ contact.
+
+\subsection{Floor Effect on Table Response}
+
+The floor effect manifests entirely in the \textbf{table displacement}
+$y_t$. After the bounce:
+\begin{itemize}[nosep]
+  \item Carpet: ${\sim}\SI{9}{\micro m}$ peak displacement, slow recovery,
+  \item Rubber mat: ${\sim}\SI{1.5}{\micro m}$ peak displacement,
+  \item Hardwood: ${\sim}\SI{1}{\micro m}$ with moderate ringing,
+  \item Concrete: sub-$\SI{0.1}{\micro m}$, rapid high-frequency ringing.
+\end{itemize}
+
+\subsection{Topspin Effect}
+
+With $\omega_0 = \SI{150}{rad/s}$ and $\dot{x}_0 = \SI{2.0}{m/s}$, the slip
+velocity at contact is $v_{\text{slip}} = 2.0 - 150 \times 0.02 =
+\SI{-1.0}{m/s}$ (negative, meaning friction acts forward on the ball).
+After the bounce, horizontal velocity increases from \SI{2.0}{m/s} to
+${\sim}\SI{2.4}{m/s}$ while spin decreases from \SI{150}{rad/s} to
+${\sim}\SI{120}{rad/s}$, confirming the expected topspin--speed coupling.
+
+%=============================================================================
+\section{Validation Summary}
+%=============================================================================
+
+\begin{center}
+\begin{tabular}{@{}llll@{}}
+  \toprule
+  Check & Target & Result & Status \\
+  \midrule
+  COR (vertical drop, concrete) & $\approx 0.76$ & $0.768$ & Pass \\
+  Contact time & $\approx \SI{1}{ms}$ & $\SI{1.01}{ms}$ & Pass \\
+  Energy non-increasing & Monotonic & $< 10^{-8}$\,J noise & Pass \\
+  Topspin gains horizontal speed & Yes & Yes & Pass \\
+  Floor differentiation (table $y_t$) & Visible & Clear separation & Pass \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+%=============================================================================
+\section{Implementation}
+%=============================================================================
+
+The simulation is implemented in Python using NumPy and SciPy, with
+Matplotlib for visualisation. The code is structured as:
+
+\begin{verbatim}
+simulations/floor_material/
+    parameters.py   -- Physical constants, material presets, SimConfig
+    physics.py      -- ODE right-hand side (derivatives) and energy
+    runner.py       -- solve_ivp integration wrapper
+    visualize.py    -- Floor comparison plot and bounce animation
+\end{verbatim}
+
+To run:
+\begin{verbatim}
+source ~/.venv/bin/activate
+python -m simulations.floor_material.visualize
+\end{verbatim}
+
+Output files are written to \texttt{output/}:
+\begin{itemize}[nosep]
+  \item \texttt{floor\_comparison.png} --- 4-panel floor comparison,
+  \item \texttt{bounce\_animation.gif} --- Topspin bounce animation.
+\end{itemize}
+
+%=============================================================================
+\section{Future Extensions}
+%=============================================================================
+
+The model is designed to be extended incrementally:
+\begin{itemize}[nosep]
+  \item \textbf{Aerodynamic drag:} Velocity-dependent drag force during flight,
+    proportional to $v^2$ with Reynolds-dependent drag coefficient.
+  \item \textbf{Magnus effect:} Spin-induced lift/lateral force during flight,
+    enabling realistic topspin dip and sidespin curve.
+  \item \textbf{Three-dimensional spin:} Extension to sidespin and gyroscopic
+    effects (requires promoting $\omega$ to a vector).
+  \item \textbf{Nonlinear contact:} Hertzian contact law
+    ($F_n \propto \delta^{3/2}$) for improved accuracy at high impact
+    velocities.
+  \item \textbf{Multiple bounces:} Extended time span to capture cumulative
+    floor effects over successive bounces.
+  \item \textbf{Lighter table configurations:} Portable or home tables with
+    lower mass where floor effects become more pronounced.
+\end{itemize}
+
+\end{document}
